@@ -7,7 +7,7 @@ Laravel integration for [aporat/push-notifications](https://github.com/aporat/pu
 [![codecov](https://codecov.io/github/aporat/laravel-push-notifications/graph/badge.svg)](https://codecov.io/github/aporat/laravel-push-notifications)
 [![Laravel Version](https://img.shields.io/badge/Laravel-13.x-orange.svg?style=flat-square)](https://laravel.com/docs/13.x)
 ![GitHub Actions](https://img.shields.io/github/actions/workflow/status/aporat/laravel-push-notifications/ci.yml?style=flat-square)
-[![License](https://img.shields.io/packagist/l/aporat/laravel-push-notifications.svg?style=flat-square)](https://github.com/aporat/laravel-push-notifications/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/aporat/laravel-push-notifications?style=flat-square)](https://github.com/aporat/laravel-push-notifications/blob/main/LICENSE)
 
 ---
 

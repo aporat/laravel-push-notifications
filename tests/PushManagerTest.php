@@ -135,4 +135,11 @@ final class PushManagerTest extends TestCase
         config()->set('push-notifications.token_cache.enabled', false);
         self::assertNull($this->manager()->tokenCache());
     }
+
+    public function test_fcm_service_account_json_may_carry_whitespace(): void
+    {
+        config()->set('push-notifications.apps.android.service_account', "\n  ".Keys::serviceAccountJson('padded')."\n");
+
+        self::assertSame('padded', $this->manager()->fcmClient('android')->account()->projectId);
+    }
 }

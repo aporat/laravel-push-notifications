@@ -16,6 +16,7 @@ use Aporat\PushNotifications\Laravel\Events\NotificationSent;
 use Aporat\PushNotifications\Notification;
 use Aporat\PushNotifications\Platform;
 use Aporat\PushNotifications\Response;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 
 /**
@@ -29,7 +30,7 @@ final class AppSender implements Sender
         public readonly string $name,
         public readonly Platform $platform,
         private readonly Sender $client,
-        private readonly Dispatcher $events,
+        private readonly Container $container,
         private readonly ?string $bundleId = null,
         private readonly ?Sender $sandboxFallback = null,
     ) {}
@@ -163,16 +164,22 @@ final class AppSender implements Sender
 
     private function dispatch(Message $message, Response $response): void
     {
+        // Resolved per send rather than captured at construction: a sender
+        // lives as long as the manager, which under Octane outlives the
+        // request that built it.
+        /** @var Dispatcher $events */
+        $events = $this->container->make(Dispatcher::class);
+
         if ($response->succeeded()) {
-            $this->events->dispatch(new NotificationSent($this->name, $message, $response));
+            $events->dispatch(new NotificationSent($this->name, $message, $response));
 
             return;
         }
 
-        $this->events->dispatch(new NotificationFailed($this->name, $message, $response));
+        $events->dispatch(new NotificationFailed($this->name, $message, $response));
 
         if ($response->tokenIsUnregistered()) {
-            $this->events->dispatch(new DeviceTokenUnregistered($this->name, $this->platform, $message->target(), $response));
+            $events->dispatch(new DeviceTokenUnregistered($this->name, $this->platform, $message->target(), $response));
         }
     }
 }

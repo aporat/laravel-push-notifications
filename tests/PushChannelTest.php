@@ -6,12 +6,18 @@ namespace Aporat\PushNotifications\Laravel\Tests;
 
 use Aporat\PushNotifications\Apns\Message as ApnsMessage;
 use Aporat\PushNotifications\Contracts\Message;
+use Aporat\PushNotifications\Exceptions\ConfigurationException;
 use Aporat\PushNotifications\Laravel\Channels\PushChannel;
 use Aporat\PushNotifications\Laravel\Channels\PushTarget;
+use Aporat\PushNotifications\Laravel\Exceptions\DeliveryFailedException;
 use Aporat\PushNotifications\Laravel\Facades\Push;
 use Aporat\PushNotifications\Laravel\Tests\Fixtures\Device;
 use Aporat\PushNotifications\Laravel\Tests\Fixtures\SilentNotification;
 use Aporat\PushNotifications\Laravel\Tests\Fixtures\WelcomeNotification;
+use Aporat\PushNotifications\Outcome;
+use Aporat\PushNotifications\Response;
+use Illuminate\Notifications\Events\NotificationFailed;
+use Illuminate\Support\Facades\Event;
 use InvalidArgumentException;
 
 final class PushChannelTest extends TestCase
@@ -77,5 +83,82 @@ final class PushChannelTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         (new Device([['token' => 'no app']]))->notify(new WelcomeNotification);
+    }
+
+    public function test_responses_keep_routing_order_across_apps(): void
+    {
+        Push::fake();
+        $channel = $this->app->make(PushChannel::class);
+
+        $responses = $channel->send(new Device([
+            new PushTarget('ios', 'a1'),
+            new PushTarget('android', 'tok'),
+            new PushTarget('ios', 'b2'),
+        ]), new WelcomeNotification);
+
+        self::assertSame(['a1', 'tok', 'b2'], array_map(static fn (Response $r): string => $r->target, $responses));
+    }
+
+    public function test_every_app_is_resolved_before_anything_is_sent(): void
+    {
+        $fake = Push::fake();
+
+        try {
+            (new Device([new PushTarget('ios', 'a1'), new PushTarget('nope', 'x')]))->notify(new WelcomeNotification);
+            self::fail('Expected a ConfigurationException.');
+        } catch (ConfigurationException) {
+            $fake->assertNothingSent();
+        }
+    }
+
+    public function test_failed_targets_raise_laravels_notification_failed(): void
+    {
+        Event::fake([NotificationFailed::class]);
+        Push::fake()->respondWith(fn (Message $m): Outcome => $m->target() === 'dead' ? Outcome::Unregistered : Outcome::Delivered);
+        $device = new Device([new PushTarget('ios', 'a1'), new PushTarget('ios', 'dead')]);
+
+        $device->notify(new WelcomeNotification);
+
+        Event::assertDispatchedTimes(NotificationFailed::class, 1);
+        Event::assertDispatched(NotificationFailed::class, static fn (NotificationFailed $e): bool => $e->notifiable === $device
+            && $e->notification instanceof WelcomeNotification
+            && $e->channel === 'push'
+            && $e->data['app'] === 'ios'
+            && $e->data['target'] === 'dead'
+            && $e->data['response'] instanceof Response
+            && $e->data['response']->tokenIsUnregistered());
+    }
+
+    public function test_throws_when_nothing_was_delivered_and_a_failure_is_retryable(): void
+    {
+        Push::fake()->respondWith(Outcome::Unavailable);
+
+        try {
+            (new Device([new PushTarget('ios', 'a1'), new PushTarget('android', 'tok')]))->notify(new WelcomeNotification);
+            self::fail('Expected a DeliveryFailedException.');
+        } catch (DeliveryFailedException $e) {
+            self::assertCount(2, $e->responses);
+            self::assertStringContainsString('none of its 2 target(s)', $e->getMessage());
+            self::assertStringContainsString('FakeUnavailable', $e->getMessage());
+        }
+    }
+
+    public function test_partial_delivery_does_not_throw(): void
+    {
+        Push::fake()->respondWith(fn (Message $m): Outcome => $m->target() === 'a1' ? Outcome::Delivered : Outcome::Unavailable);
+
+        $responses = $this->app->make(PushChannel::class)->send(new Device([new PushTarget('ios', 'a1'), new PushTarget('ios', 'b2')]), new WelcomeNotification);
+
+        self::assertTrue($responses[0]->succeeded());
+        self::assertTrue($responses[1]->isRetryable());
+    }
+
+    public function test_permanent_failures_do_not_throw(): void
+    {
+        Push::fake()->respondWith(Outcome::Unregistered);
+
+        $responses = $this->app->make(PushChannel::class)->send(new Device([new PushTarget('ios', 'a1')]), new WelcomeNotification);
+
+        self::assertTrue($responses[0]->tokenIsUnregistered());
     }
 }

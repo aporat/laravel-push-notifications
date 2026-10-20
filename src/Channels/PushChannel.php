@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace Aporat\PushNotifications\Laravel\Channels;
 
+use Aporat\PushNotifications\Laravel\AppSender;
+use Aporat\PushNotifications\Laravel\Exceptions\DeliveryFailedException;
 use Aporat\PushNotifications\Laravel\PushManager;
 use Aporat\PushNotifications\Notification as PushNotification;
 use Aporat\PushNotifications\Response;
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Notifications\Events\NotificationFailed;
 use Illuminate\Notifications\Notification;
 use InvalidArgumentException;
 
@@ -16,15 +21,26 @@ use InvalidArgumentException;
  * {@see PushNotification}, and let the notifiable say where it goes with
  * routeNotificationForPush(): one {@see PushTarget}, a list of them, or
  * the array form ['app' => ..., 'token' => ...].
+ *
+ * Targets are grouped by app and sent concurrently through each app's
+ * connection. Every app is resolved before anything is sent, so a bad app
+ * name fails the whole send rather than leaving earlier targets notified
+ * and a retry notifying them again. Each failed target raises Laravel's
+ * {@see NotificationFailed} with the app, target and response; when no
+ * target was reached and a failure is retryable, the send throws so a
+ * queued notification is retried.
  */
 final class PushChannel
 {
     public function __construct(
         private readonly PushManager $push,
+        private readonly Container $container,
     ) {}
 
     /**
-     * @return array<int, Response> One response per target, in routing order.
+     * @return list<Response> One response per target, in routing order.
+     *
+     * @throws DeliveryFailedException
      */
     public function send(mixed $notifiable, Notification $notification): array
     {
@@ -34,6 +50,65 @@ final class PushChannel
             return [];
         }
 
+        $push = $this->payload($notifiable, $notification);
+
+        /** @var array<string, array<int, string>> $tokensByApp */
+        $tokensByApp = [];
+
+        foreach ($targets as $index => $target) {
+            $tokensByApp[$target->app][$index] = $target->token;
+        }
+
+        /** @var array<string, AppSender> $senders */
+        $senders = [];
+
+        foreach (array_keys($tokensByApp) as $app) {
+            $senders[$app] = $this->push->app($app);
+        }
+
+        /** @var array<int, Response> $responses */
+        $responses = [];
+
+        foreach ($tokensByApp as $app => $tokens) {
+            foreach ($senders[$app]->notifyMany($push, $tokens) as $index => $response) {
+                $responses[$index] = $response;
+            }
+        }
+
+        ksort($responses);
+        $responses = array_values($responses);
+
+        $delivered = false;
+        $retryable = false;
+
+        /** @var Dispatcher $events */
+        $events = $this->container->make(Dispatcher::class);
+
+        foreach ($responses as $index => $response) {
+            if ($response->succeeded()) {
+                $delivered = true;
+
+                continue;
+            }
+
+            $retryable = $retryable || $response->isRetryable();
+
+            $events->dispatch(new NotificationFailed($notifiable, $notification, 'push', [
+                'app' => $targets[$index]->app,
+                'target' => $response->target,
+                'response' => $response,
+            ]));
+        }
+
+        if (! $delivered && $retryable) {
+            throw new DeliveryFailedException($responses);
+        }
+
+        return $responses;
+    }
+
+    private function payload(mixed $notifiable, Notification $notification): PushNotification
+    {
         if (! method_exists($notification, 'toPush')) {
             throw new InvalidArgumentException(sprintf('%s must define toPush($notifiable) to use the push channel.', $notification::class));
         }
@@ -44,13 +119,7 @@ final class PushChannel
             throw new InvalidArgumentException(sprintf('%s::toPush() must return a %s.', $notification::class, PushNotification::class));
         }
 
-        $responses = [];
-
-        foreach ($targets as $target) {
-            $responses[] = $this->push->app($target->app)->notify($push, $target->token);
-        }
-
-        return $responses;
+        return $push;
     }
 
     /**

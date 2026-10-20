@@ -4,10 +4,19 @@ declare(strict_types=1);
 
 namespace Aporat\PushNotifications\Laravel\Tests;
 
+use Aporat\PushNotifications\Apns\Client as ApnsClient;
+use Aporat\PushNotifications\Apns\Credentials;
+use Aporat\PushNotifications\Apns\Environment;
 use Aporat\PushNotifications\Apns\Message as ApnsMessage;
+use Aporat\PushNotifications\Clock\FrozenClock;
 use Aporat\PushNotifications\Contracts\Message;
+use Aporat\PushNotifications\Exceptions\AuthenticationException;
+use Aporat\PushNotifications\Exceptions\ConfigurationException;
 use Aporat\PushNotifications\Exceptions\InvalidMessageException;
+use Aporat\PushNotifications\Fcm\AccessTokenProvider;
+use Aporat\PushNotifications\Fcm\Client as FcmClient;
 use Aporat\PushNotifications\Fcm\Message as FcmMessage;
+use Aporat\PushNotifications\Fcm\ServiceAccount;
 use Aporat\PushNotifications\Laravel\AppSender;
 use Aporat\PushNotifications\Laravel\Events\DeviceTokenUnregistered;
 use Aporat\PushNotifications\Laravel\Events\NotificationFailed;
@@ -17,7 +26,10 @@ use Aporat\PushNotifications\Outcome;
 use Aporat\PushNotifications\Platform;
 use Aporat\PushNotifications\Response;
 use Aporat\PushNotifications\Testing\FakeSender;
-use Illuminate\Contracts\Events\Dispatcher;
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Psr7\Response as HttpResponse;
 use Illuminate\Support\Facades\Event;
 
 final class AppSenderTest extends TestCase
@@ -28,7 +40,7 @@ final class AppSenderTest extends TestCase
             name: 'ios',
             platform: $platform,
             client: $client,
-            events: $this->app->make(Dispatcher::class),
+            container: $this->app,
             bundleId: $platform === Platform::Apns ? 'com.acme.app' : null,
             sandboxFallback: $fallback,
         );
@@ -146,5 +158,40 @@ final class AppSenderTest extends TestCase
         $this->expectExceptionMessage('sends apns messages, not fcm');
 
         $this->sender(new FakeSender)->send(FcmMessage::to('t')->notification('x'));
+    }
+
+    /**
+     * @param  list<HttpResponse>  $queue
+     */
+    private function guzzle(array $queue): GuzzleClient
+    {
+        return new GuzzleClient(['handler' => HandlerStack::create(new MockHandler($queue)), 'http_errors' => false]);
+    }
+
+    public function test_an_apns_key_that_cannot_sign_throws_instead_of_answering(): void
+    {
+        // send() goes through the core's sendMany(); a credential failure
+        // there must surface as an exception, never as a retryable response
+        // that lets a queued job finish as if it had delivered.
+        $http = $this->guzzle([new HttpResponse(200)]);
+        $client = new ApnsClient(new Credentials('TEAM123456', 'KEY1234567', Keys::rsa()), Environment::Sandbox, [], $http);
+        $sender = new AppSender('ios', Platform::Apns, $client, $this->app, 'com.acme.app');
+
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('not an EC key');
+
+        $sender->notify(Notification::create('Hi'), 'ab12');
+    }
+
+    public function test_a_rejected_service_account_throws_instead_of_answering(): void
+    {
+        $oauth = $this->guzzle([new HttpResponse(400, [], (string) json_encode(['error' => 'invalid_grant']))]);
+        $account = new ServiceAccount('demo-project', 'fcm@demo-project.iam.gserviceaccount.com', Keys::rsa());
+        $client = new FcmClient($account, [], $this->guzzle([new HttpResponse(200)]), new AccessTokenProvider($account, $oauth, new FrozenClock));
+        $sender = new AppSender('android', Platform::Fcm, $client, $this->app);
+
+        $this->expectException(AuthenticationException::class);
+
+        $sender->notify(Notification::create('Hi'), 'tok');
     }
 }

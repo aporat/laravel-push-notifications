@@ -75,7 +75,33 @@ return [
 ];
 ```
 
-The rest of the file covers logging (`PUSH_LOG_CHANNEL`), the token cache store (`PUSH_TOKEN_CACHE_STORE`; use redis or database behind more than one server), HTTP timeouts and batch concurrency, the APNs port and default environment, and `PUSH_APNS_SANDBOX_FALLBACK`.
+The rest of the file covers logging (`PUSH_LOG_CHANNEL`, `PUSH_LOG_REDACT_TOKENS`), the token cache store (`PUSH_TOKEN_CACHE_STORE`), HTTP timeouts and batch concurrency, the APNs port and default environment, and `PUSH_APNS_SANDBOX_FALLBACK`.
+
+### Credentials from a secrets manager
+
+Both credential fields take the secret's contents inline, so nothing has to be written to disk. A key whose line breaks an env channel flattened to spaces or literal `\n` is restored before use:
+
+```php
+'teams' => [
+    'acme' => [
+        'team_id' => 'ABCDE12345',
+        'key_id' => env('ACME_APNS_KEY_ID'),
+        'private_key' => env('ACME_APNS_PRIVATE_KEY'), // the .p8 file's PEM text
+    ],
+],
+'apps' => [
+    'acme-android' => [
+        'driver' => 'fcm',
+        'service_account' => env('ACME_FIREBASE_SERVICE_ACCOUNT_JSON'), // the key file's JSON
+    ],
+],
+```
+
+With AWS Secrets Manager, for example, store the `.p8` text and the service account JSON as secret values and inject them as those env variables at deploy time.
+
+### The token cache
+
+The APNs provider token and the FCM access token are bearer tokens valid for an hour. They are written to the token cache store as-is, so pick a store with the same access controls as your other secrets: redis is the usual choice behind more than one server, and the `database` and `file` stores leave them readable by anyone with that access. Set `token_cache.enabled` to false to keep a token per process instead.
 
 ---
 
@@ -170,7 +196,11 @@ class User extends Authenticatable
 }
 ```
 
-`routeNotificationForPush()` may return one `PushTarget`, one `['app' => ..., 'token' => ...]` array, or a list of either. Each target is sent through its own app, so one user with an iPhone and an Android phone gets both.
+`routeNotificationForPush()` may return one `PushTarget`, one `['app' => ..., 'token' => ...]` array, or a list of either. Targets are grouped by app and sent concurrently through each app's connection, so one user with an iPhone and an Android phone gets both. Every app is resolved before anything is sent; an unknown app name fails the whole send.
+
+### Failures and retries
+
+Each target the service refuses raises Laravel's own `Illuminate\Notifications\Events\NotificationFailed`, with `app`, `target` and the `Response` in its data, besides this package's events. When no target was reached and at least one failure is retryable (rate limited, service unavailable, connection failed), the channel throws `DeliveryFailedException`, so a queued notification's `$tries` and `backoff` take over. A partial success never throws: a retry would notify again the devices that already got it. Those responses are still on the events, and on the channel's return value.
 
 ---
 
@@ -194,6 +224,12 @@ Push::fake()->respondWith(Outcome::Unregistered);
 ```
 
 Apps still come from config, so the fake renders and raises events exactly as production would; only the HTTP leaves.
+
+---
+
+## 📝 Logging
+
+The clients log every accepted push at `debug` and every refused one at `warning`, with the target, status, reason and the service's message ID, to the channel named by `logging.channel` or the application's default. Device tokens are logged in full by default, so a device's history can be traced by its token; set `PUSH_LOG_REDACT_TOKENS=true` to shorten them to their first six and last four characters.
 
 ---
 

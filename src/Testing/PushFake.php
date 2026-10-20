@@ -12,7 +12,6 @@ use Aporat\PushNotifications\Platform;
 use Aporat\PushNotifications\Response;
 use Aporat\PushNotifications\Testing\FakeSender;
 use Closure;
-use Illuminate\Contracts\Events\Dispatcher;
 use PHPUnit\Framework\Assert as PHPUnit;
 
 /**
@@ -120,7 +119,7 @@ class PushFake extends PushManager
             name: $name,
             platform: $platform,
             client: $fake,
-            events: $this->container->make(Dispatcher::class),
+            container: $this->container,
             bundleId: is_string($bundleId) ? $bundleId : null,
         );
     }

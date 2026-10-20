@@ -6,7 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- `PushChannel` resolves every routed app before sending, groups targets by app and sends each
+  group concurrently with `notifyMany()`. Each refused target raises Laravel's
+  `Illuminate\Notifications\Events\NotificationFailed` with the app, target and `Response` in its
+  data. When no target was reached and a failure is retryable, the send throws the new
+  `DeliveryFailedException`, so queued notifications retry; a partial success never throws.
+- `AppSender` resolves the event dispatcher when it dispatches rather than capturing it at
+  construction, since senders outlive the request that built them under Octane. Its constructor now
+  takes the container.
+- An FCM app's `service_account` is recognised as JSON with `json_validate()` rather than by the
+  presence of a brace.
+
 ### Added
+- `logging.redact_tokens` (`PUSH_LOG_REDACT_TOKENS`): shorten device tokens in the clients' log lines.
+- A regression test that a credential failure (a key that cannot sign, a rejected service account)
+  surfaces from `AppSender::notify()` as an exception rather than a retryable response, which depends
+  on `aporat/push-notifications` 0.1.1 or later.
+- README sections on credentials from a secrets manager, the token cache's trust level, and the
+  channel's failure and retry behaviour.
+
+### Added in 0.1.0
 - `PushManager` and the `Push` facade: `Push::app('name')` resolves a configured app to an
   `AppSender`. APNs clients are shared per team and environment and FCM clients per app, all
   held for the life of the process, with provider and access tokens shared across workers through

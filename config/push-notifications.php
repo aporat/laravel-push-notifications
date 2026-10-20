@@ -10,12 +10,15 @@ return [
     | The log channel the APNs and FCM clients write to: every accepted push
     | at debug, every refused one at warning, with the target, status, reason
     | and the service's message ID. Null uses the application's default
-    | channel.
+    | channel. With 'redact_tokens' on, device tokens in those lines are
+    | shortened to their first and last characters; off, they are logged in
+    | full so a device's history can be traced by its token.
     |
     */
 
     'logging' => [
         'channel' => env('PUSH_LOG_CHANNEL'),
+        'redact_tokens' => (bool) env('PUSH_LOG_REDACT_TOKENS', false),
     ],
 
     /*

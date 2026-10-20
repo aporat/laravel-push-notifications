@@ -17,7 +17,6 @@ use Aporat\PushNotifications\Platform;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
-use Illuminate\Contracts\Events\Dispatcher;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
 
@@ -128,7 +127,7 @@ class PushManager
         $config = $this->appConfig($app);
         $serviceAccount = $this->string($config, 'service_account', 'apps.'.$app);
 
-        $account = str_contains($serviceAccount, '{')
+        $account = json_validate(trim($serviceAccount))
             ? ServiceAccount::fromJson($serviceAccount)
             : ServiceAccount::fromFile($serviceAccount);
 
@@ -182,7 +181,7 @@ class PushManager
             name: $name,
             platform: $platform,
             client: $client,
-            events: $this->container->make(Dispatcher::class),
+            container: $this->container,
             bundleId: $bundleId,
             sandboxFallback: $fallback,
         );

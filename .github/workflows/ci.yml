@@ -19,7 +19,7 @@ env:
   # composer.json resolves aporat/push-notifications from a sibling checkout
   # through a path repository until it is published on Packagist.
   CORE_REPOSITORY: https://github.com/aporat/push-notifications
-  CORE_REF: v0.1.0
+  CORE_REF: v0.1.1
 
 jobs:
   # Lint, static analysis and the coverage run, on the locked dependency set.

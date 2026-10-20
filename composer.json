@@ -42,7 +42,7 @@
       "options": {
         "symlink": true,
         "versions": {
-          "aporat/push-notifications": "0.1.0"
+          "aporat/push-notifications": "0.1.1"
         }
       }
     }

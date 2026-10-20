@@ -27,5 +27,5 @@ All notable changes to this project are documented here. The format follows
 
 ### Notes
 - Until `aporat/push-notifications` is on Packagist, `composer.json` resolves it from a sibling
-  checkout (`../push-notifications`) pinned to 0.1.0 through a path repository. Consumers' Composer
+  checkout (`../push-notifications`) pinned to 0.1.1 through a path repository. Consumers' Composer
   ignores that entry; it only serves this package's own development and CI.

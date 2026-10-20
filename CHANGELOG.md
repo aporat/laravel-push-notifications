@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-20
+
 ### Changed
 - **Config: one entry per app, no `teams` block.** An `apns` app now carries its own `team_id`,
   `key_id` and `private_key` instead of naming a team. Apps configured with the same key still
@@ -30,7 +32,7 @@ All notable changes to this project are documented here. The format follows
 - README sections on credentials from a secrets manager, the token cache's trust level, and the
   channel's failure and retry behaviour.
 
-### Added in 0.1.0
+### Added (initial)
 - `PushManager` and the `Push` facade: `Push::app('name')` resolves a configured app to an
   `AppSender`. APNs clients are shared per team and environment and FCM clients per app, all
   held for the life of the process, with provider and access tokens shared across workers through

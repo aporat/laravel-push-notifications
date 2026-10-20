@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Config: one entry per app, no `teams` block.** An `apns` app now carries its own `team_id`,
+  `key_id` and `private_key` instead of naming a team. Apps configured with the same key still
+  share one client per environment, matched by the key's fingerprint. `PushManager::apnsClient()`
+  takes an app name rather than a team name.
 - `PushChannel` resolves every routed app before sending, groups targets by app and sends each
   group concurrently with `notifyMany()`. Each refused target raises Laravel's
   `Illuminate\Notifications\Events\NotificationFailed` with the app, target and `Response` in its

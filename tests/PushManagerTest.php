@@ -32,14 +32,22 @@ final class PushManagerTest extends TestCase
         self::assertSame($sender, $this->manager()->app('ios'));
     }
 
-    public function test_apps_in_one_team_share_one_apns_client_per_environment(): void
+    public function test_apps_with_the_same_key_share_one_apns_client_per_environment(): void
     {
         $manager = $this->manager();
 
         self::assertSame($manager->app('ios')->client(), $manager->app('watch')->client());
         self::assertNotSame($manager->app('ios')->client(), $manager->app('ios-sandbox')->client());
         self::assertSame(Environment::Sandbox, $manager->app('ios-sandbox')->client()->environment());
-        self::assertSame($manager->app('ios')->client(), $manager->apnsClient('acme', Environment::Production));
+        self::assertSame($manager->app('ios')->client(), $manager->apnsClient('watch', Environment::Production));
+    }
+
+    public function test_apps_with_different_keys_get_their_own_client(): void
+    {
+        $manager = $this->manager();
+
+        self::assertNotSame($manager->app('ios')->client(), $manager->app('other-team')->client());
+        self::assertSame('OTHER12345', $manager->app('other-team')->client()->credentials()->teamId);
     }
 
     public function test_fcm_app(): void
@@ -69,7 +77,7 @@ final class PushManagerTest extends TestCase
 
     public function test_apps_lists_the_configured_names(): void
     {
-        self::assertSame(['ios', 'ios-sandbox', 'watch', 'android', 'broken'], Push::apps());
+        self::assertSame(['ios', 'ios-sandbox', 'watch', 'other-team', 'android', 'broken'], Push::apps());
     }
 
     public function test_unknown_app(): void
@@ -88,12 +96,12 @@ final class PushManagerTest extends TestCase
         $this->manager()->app('broken');
     }
 
-    public function test_unknown_team(): void
+    public function test_missing_key(): void
     {
-        config()->set('push-notifications.apps.ios.team', 'ghost');
+        config()->set('push-notifications.apps.ios.private_key', null);
 
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('team "ghost"');
+        $this->expectExceptionMessage('push-notifications.apps.ios.private_key is missing');
 
         $this->manager()->app('ios');
     }
@@ -125,7 +133,7 @@ final class PushManagerTest extends TestCase
         $sender = $this->manager()->app('ios');
 
         self::assertSame(Environment::Production, $sender->client()->environment());
-        self::assertSame(Environment::Sandbox, $this->manager()->apnsClient('acme', Environment::Sandbox)->environment());
+        self::assertSame(Environment::Sandbox, $this->manager()->apnsClient('ios', Environment::Sandbox)->environment());
     }
 
     public function test_token_cache(): void

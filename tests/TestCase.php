@@ -25,15 +25,12 @@ abstract class TestCase extends Orchestra
     protected function defineEnvironment($app): void
     {
         $app['config']->set('cache.default', 'array');
-        $app['config']->set('push-notifications.teams.acme', [
-            'team_id' => 'TEAM123456',
-            'key_id' => 'KEY1234567',
-            'private_key' => Keys::ec(),
-        ]);
+        $key = ['team_id' => 'TEAM123456', 'key_id' => 'KEY1234567', 'private_key' => Keys::ec()];
         $app['config']->set('push-notifications.apps', [
-            'ios' => ['driver' => 'apns', 'bundle_id' => 'com.acme.app', 'team' => 'acme'],
-            'ios-sandbox' => ['driver' => 'apns', 'bundle_id' => 'com.acme.app', 'team' => 'acme', 'environment' => 'sandbox'],
-            'watch' => ['driver' => 'apns', 'bundle_id' => 'com.acme.watch', 'team' => 'acme'],
+            'ios' => ['driver' => 'apns', 'bundle_id' => 'com.acme.app'] + $key,
+            'ios-sandbox' => ['driver' => 'apns', 'bundle_id' => 'com.acme.app', 'environment' => 'sandbox'] + $key,
+            'watch' => ['driver' => 'apns', 'bundle_id' => 'com.acme.watch'] + $key,
+            'other-team' => ['driver' => 'apns', 'bundle_id' => 'com.other.app', 'team_id' => 'OTHER12345', 'key_id' => 'KEYOTHER00', 'private_key' => Keys::ec()],
             'android' => ['driver' => 'fcm', 'service_account' => Keys::serviceAccountJson()],
             'broken' => ['driver' => 'smoke-signals'],
         ]);

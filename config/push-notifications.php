@@ -80,33 +80,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Teams
-    |--------------------------------------------------------------------------
-    |
-    | One APNs auth key per Apple developer team. The key signs pushes for
-    | every iOS app in the team, and every app in the team shares one
-    | connection. 'private_key' is the .p8 file's path or its PEM contents
-    | (line breaks flattened by an env channel are restored).
-    |
-    */
-
-    'teams' => [
-        // 'acme' => [
-        //     'team_id' => env('ACME_TEAM_ID'),
-        //     'key_id' => env('ACME_APNS_KEY_ID'),
-        //     'private_key' => env('ACME_APNS_PRIVATE_KEY'),
-        // ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Apps
     |--------------------------------------------------------------------------
     |
-    | Each app you push to, by the name your code uses with Push::app().
-    | An 'apns' app names its bundle ID and team, and may set its own
-    | 'environment'. An 'fcm' app names its Firebase service account: the
-    | key file's path or its JSON contents.
+    | Each app you push to, by the name your code uses with Push::app(),
+    | with its own credentials.
+    |
+    | An 'apns' app carries its bundle ID and the team's APNs auth key: the
+    | 10-character team ID, the key ID, and the .p8 file's path or its PEM
+    | contents (line breaks flattened by an env channel are restored). It
+    | may set its own 'environment'. Apps that share a key also share one
+    | connection to Apple, since the key signs for every app in the team.
+    |
+    | An 'fcm' app carries its Firebase service account: the key file's
+    | path or its JSON contents.
     |
     */
 
@@ -114,7 +101,9 @@ return [
         // 'acme-ios' => [
         //     'driver' => 'apns',
         //     'bundle_id' => 'com.acme.app',
-        //     'team' => 'acme',
+        //     'team_id' => env('ACME_TEAM_ID'),
+        //     'key_id' => env('ACME_APNS_KEY_ID'),
+        //     'private_key' => env('ACME_APNS_PRIVATE_KEY'),
         //     'environment' => 'production',
         // ],
         // 'acme-android' => [

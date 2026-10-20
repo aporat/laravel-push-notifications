@@ -16,7 +16,7 @@ use RuntimeException;
 /**
  * @method static AppSender app(string $name)
  * @method static list<string> apps()
- * @method static ApnsClient apnsClient(string $team, Environment $environment)
+ * @method static ApnsClient apnsClient(string $app, Environment $environment)
  * @method static FcmClient fcmClient(string $app)
  *
  * @see PushManager

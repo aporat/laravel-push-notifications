@@ -23,11 +23,12 @@ use Psr\Log\LoggerInterface;
 /**
  * Resolves the configured apps into senders, and the clients behind them.
  *
- * APNs clients are shared per team and environment, since one auth key
- * signs for every app in the team and Apple binds a connection to the
- * team. FCM clients are one per app, since each app has its own Firebase
- * project. All of them live as long as this manager, so a queue worker
- * keeps its connections and tokens between jobs.
+ * APNs clients are shared between apps configured with the same auth key
+ * and environment, since one key signs for every app in the team and
+ * Apple binds a connection to the team. FCM clients are one per app,
+ * since each app has its own Firebase project. All of them live as long
+ * as this manager, so a queue worker keeps its connections and tokens
+ * between jobs.
  */
 class PushManager
 {
@@ -67,33 +68,31 @@ class PushManager
     }
 
     /**
-     * The APNs client for a team, on one environment.
+     * The APNs client for an app's auth key, on one environment. Apps
+     * configured with the same key get the same client.
      *
      * @throws ConfigurationException
      */
-    public function apnsClient(string $team, Environment $environment): ApnsClient
+    public function apnsClient(string $app, Environment $environment): ApnsClient
     {
-        $key = $team.'|'.$environment->value;
+        $config = $this->appConfig($app);
+
+        $credentials = new Credentials(
+            teamId: $this->string($config, 'team_id', 'apps.'.$app),
+            keyId: $this->string($config, 'key_id', 'apps.'.$app),
+            privateKey: $this->string($config, 'private_key', 'apps.'.$app),
+        );
+
+        $fingerprint = $credentials->fingerprint();
+        $key = $fingerprint.'|'.$environment->value;
 
         if (isset($this->apnsClients[$key])) {
             return $this->apnsClients[$key];
         }
 
-        $config = $this->config('teams.'.$team);
-
-        if (! is_array($config)) {
-            throw new ConfigurationException(sprintf('Push team "%s" is not configured under push-notifications.teams.', $team));
-        }
-
-        $credentials = new Credentials(
-            teamId: $this->string($config, 'team_id', 'teams.'.$team),
-            keyId: $this->string($config, 'key_id', 'teams.'.$team),
-            privateKey: $this->string($config, 'private_key', 'teams.'.$team),
-        );
-
         // A client for the other environment shares the provider token; a
         // key signs for both gateways.
-        $sibling = $this->apnsClients[$team.'|'.($environment === Environment::Production ? Environment::Sandbox : Environment::Production)->value] ?? null;
+        $sibling = $this->apnsClients[$fingerprint.'|'.($environment === Environment::Production ? Environment::Sandbox : Environment::Production)->value] ?? null;
 
         if ($sibling !== null) {
             return $this->apnsClients[$key] = $sibling->withEnvironment($environment);
@@ -196,14 +195,13 @@ class PushManager
     protected function buildApns(string $name, array $config): array
     {
         $bundleId = $this->string($config, 'bundle_id', 'apps.'.$name);
-        $team = $this->string($config, 'team', 'apps.'.$name);
         $environment = $this->environment($config['environment'] ?? $this->config('apns.environment'), $name);
 
-        $client = $this->apnsClient($team, $environment);
+        $client = $this->apnsClient($name, $environment);
         $fallback = null;
 
         if ($environment === Environment::Production && (bool) ($this->config('apns.sandbox_fallback') ?? false)) {
-            $fallback = $this->apnsClient($team, Environment::Sandbox);
+            $fallback = $this->apnsClient($name, Environment::Sandbox);
         }
 
         return [Platform::Apns, $client, $bundleId, $fallback];

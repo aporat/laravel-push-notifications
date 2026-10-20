@@ -13,7 +13,7 @@ Laravel integration for [aporat/push-notifications](https://github.com/aporat/pu
 
 ## ✨ Features
 
-- `Push::app('name')` resolves a configured app to a sender that knows its platform, bundle ID and credentials. APNs clients are shared per team and environment, FCM clients per app, and all of them live for the life of the process, so a queue worker keeps its connections and tokens between jobs
+- `Push::app('name')` resolves a configured app to a sender that knows its platform, bundle ID and credentials. Apps configured with the same APNs key share one connection, FCM clients are one per app, and all of them live for the life of the process, so a queue worker keeps its connections and tokens between jobs
 - Provider and access tokens shared across workers through any Laravel cache store
 - Events for every answer: `NotificationSent`, `NotificationFailed`, and `DeviceTokenUnregistered` when a service reports the token dead, so one listener clears tokens for every app
 - Optional sandbox fallback: a production push answered `BadDeviceToken` is retried once on the sandbox gateway, where tokens from Xcode builds live
@@ -41,30 +41,27 @@ php artisan vendor:publish --tag=config --provider="Aporat\PushNotifications\Lar
 
 ## ⚙️ Configuration
 
-Teams hold APNs auth keys; apps name their platform and credentials:
+One entry per app, each with its own credentials:
 
 ```php
 return [
-    'teams' => [
-        'acme' => [
-            'team_id' => env('ACME_TEAM_ID'),
-            'key_id' => env('ACME_APNS_KEY_ID'),
-            // The .p8 file's path, or its PEM contents (flattened line breaks are restored).
-            'private_key' => env('ACME_APNS_PRIVATE_KEY'),
-        ],
-    ],
-
     'apps' => [
         'acme-ios' => [
             'driver' => 'apns',
             'bundle_id' => 'com.acme.app',
-            'team' => 'acme',
+            'team_id' => env('ACME_TEAM_ID'),
+            'key_id' => env('ACME_APNS_KEY_ID'),
+            // The .p8 file's path, or its PEM contents (flattened line breaks are restored).
+            'private_key' => env('ACME_APNS_PRIVATE_KEY'),
             'environment' => 'production', // or 'sandbox'; defaults to apns.environment
         ],
         'acme-watch' => [
             'driver' => 'apns',
             'bundle_id' => 'com.acme.watch',
-            'team' => 'acme', // same team: shares the connection and the provider token
+            // The same key as acme-ios: the two apps share one connection and one provider token.
+            'team_id' => env('ACME_TEAM_ID'),
+            'key_id' => env('ACME_APNS_KEY_ID'),
+            'private_key' => env('ACME_APNS_PRIVATE_KEY'),
         ],
         'acme-android' => [
             'driver' => 'fcm',
@@ -75,6 +72,8 @@ return [
 ];
 ```
 
+An APNs auth key belongs to the team and signs for every app in it, so several apps can carry the same key; the package notices and gives them one client.
+
 The rest of the file covers logging (`PUSH_LOG_CHANNEL`, `PUSH_LOG_REDACT_TOKENS`), the token cache store (`PUSH_TOKEN_CACHE_STORE`), HTTP timeouts and batch concurrency, the APNs port and default environment, and `PUSH_APNS_SANDBOX_FALLBACK`.
 
 ### Credentials from a secrets manager
@@ -82,14 +81,14 @@ The rest of the file covers logging (`PUSH_LOG_CHANNEL`, `PUSH_LOG_REDACT_TOKENS
 Both credential fields take the secret's contents inline, so nothing has to be written to disk. A key whose line breaks an env channel flattened to spaces or literal `\n` is restored before use:
 
 ```php
-'teams' => [
-    'acme' => [
+'apps' => [
+    'acme-ios' => [
+        'driver' => 'apns',
+        'bundle_id' => 'com.acme.app',
         'team_id' => 'ABCDE12345',
         'key_id' => env('ACME_APNS_KEY_ID'),
         'private_key' => env('ACME_APNS_PRIVATE_KEY'), // the .p8 file's PEM text
     ],
-],
-'apps' => [
     'acme-android' => [
         'driver' => 'fcm',
         'service_account' => env('ACME_FIREBASE_SERVICE_ACCOUNT_JSON'), // the key file's JSON

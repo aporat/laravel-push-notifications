@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `PushChannel` looks for `toApns($notifiable, $token)` and `toFcm($notifiable, $token)` on the
+  notification before `toPush()`. Each returns that platform's message, so a notification can be a
+  background, VoIP or Live Activity push on APNs, or a data-only message on FCM. The platform method
+  serves targets of its platform; `toPush()` serves the rest and is only required when needed.
+
 ## [0.1.0] - 2026-10-20
 
 ### Changed

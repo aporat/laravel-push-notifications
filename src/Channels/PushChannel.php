@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Aporat\PushNotifications\Laravel\Channels;
 
+use Aporat\PushNotifications\Apns\Message as ApnsMessage;
+use Aporat\PushNotifications\Contracts\Message;
+use Aporat\PushNotifications\Fcm\Message as FcmMessage;
 use Aporat\PushNotifications\Laravel\AppSender;
 use Aporat\PushNotifications\Laravel\Exceptions\DeliveryFailedException;
 use Aporat\PushNotifications\Laravel\PushManager;
 use Aporat\PushNotifications\Notification as PushNotification;
+use Aporat\PushNotifications\Platform;
 use Aporat\PushNotifications\Response;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -21,6 +25,13 @@ use InvalidArgumentException;
  * {@see PushNotification}, and let the notifiable say where it goes with
  * routeNotificationForPush(): one {@see PushTarget}, a list of them, or
  * the array form ['app' => ..., 'token' => ...].
+ *
+ * For full control of one platform, a notification may instead (or as
+ * well) define toApns($notifiable, string $token) returning an
+ * {@see ApnsMessage}, or toFcm($notifiable, string $token) returning an
+ * {@see FcmMessage}: a background, VoIP or Live Activity push, a data-only
+ * FCM message. The platform method wins for targets of its platform;
+ * toPush() serves the rest, and is only required when some target needs it.
  *
  * Targets are grouped by app and sent concurrently through each app's
  * connection. Every app is resolved before anything is sent, so a bad app
@@ -50,8 +61,6 @@ final class PushChannel
             return [];
         }
 
-        $push = $this->payload($notifiable, $notification);
-
         /** @var array<string, array<int, string>> $tokensByApp */
         $tokensByApp = [];
 
@@ -69,8 +78,26 @@ final class PushChannel
         /** @var array<int, Response> $responses */
         $responses = [];
 
+        $push = null;
+
         foreach ($tokensByApp as $app => $tokens) {
-            foreach ($senders[$app]->notifyMany($push, $tokens) as $index => $response) {
+            $sender = $senders[$app];
+            $method = $sender->platform === Platform::Apns ? 'toApns' : 'toFcm';
+
+            if (method_exists($notification, $method)) {
+                $messages = [];
+
+                foreach ($tokens as $index => $token) {
+                    $messages[$index] = $this->platformMessage($notification, $notifiable, $token, $sender->platform);
+                }
+
+                $results = $sender->sendMany($messages);
+            } else {
+                $push ??= $this->payload($notifiable, $notification);
+                $results = $sender->notifyMany($push, $tokens);
+            }
+
+            foreach ($results as $index => $response) {
                 $responses[$index] = $response;
             }
         }
@@ -107,10 +134,35 @@ final class PushChannel
         return $responses;
     }
 
+    private function platformMessage(Notification $notification, mixed $notifiable, string $token, Platform $platform): Message
+    {
+        if ($platform === Platform::Apns && method_exists($notification, 'toApns')) {
+            $message = $notification->toApns($notifiable, $token);
+
+            if (! $message instanceof ApnsMessage) {
+                throw new InvalidArgumentException(sprintf('%s::toApns() must return a %s.', $notification::class, ApnsMessage::class));
+            }
+
+            return $message;
+        }
+
+        if ($platform === Platform::Fcm && method_exists($notification, 'toFcm')) {
+            $message = $notification->toFcm($notifiable, $token);
+
+            if (! $message instanceof FcmMessage) {
+                throw new InvalidArgumentException(sprintf('%s::toFcm() must return a %s.', $notification::class, FcmMessage::class));
+            }
+
+            return $message;
+        }
+
+        throw new InvalidArgumentException(sprintf('%s has no builder for %s.', $notification::class, $platform->value));
+    }
+
     private function payload(mixed $notifiable, Notification $notification): PushNotification
     {
         if (! method_exists($notification, 'toPush')) {
-            throw new InvalidArgumentException(sprintf('%s must define toPush($notifiable) to use the push channel.', $notification::class));
+            throw new InvalidArgumentException(sprintf('%s must define toPush($notifiable), or toApns() and toFcm(), to use the push channel.', $notification::class));
         }
 
         $push = $notification->toPush($notifiable);

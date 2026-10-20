@@ -7,13 +7,17 @@ namespace Aporat\PushNotifications\Laravel\Tests;
 use Aporat\PushNotifications\Apns\Message as ApnsMessage;
 use Aporat\PushNotifications\Contracts\Message;
 use Aporat\PushNotifications\Exceptions\ConfigurationException;
+use Aporat\PushNotifications\Fcm\Message as FcmMessage;
 use Aporat\PushNotifications\Laravel\Channels\PushChannel;
 use Aporat\PushNotifications\Laravel\Channels\PushTarget;
 use Aporat\PushNotifications\Laravel\Exceptions\DeliveryFailedException;
 use Aporat\PushNotifications\Laravel\Facades\Push;
+use Aporat\PushNotifications\Laravel\Tests\Fixtures\ApnsOnlyNotification;
 use Aporat\PushNotifications\Laravel\Tests\Fixtures\Device;
+use Aporat\PushNotifications\Laravel\Tests\Fixtures\ScoreUpdateNotification;
 use Aporat\PushNotifications\Laravel\Tests\Fixtures\SilentNotification;
 use Aporat\PushNotifications\Laravel\Tests\Fixtures\WelcomeNotification;
+use Aporat\PushNotifications\Laravel\Tests\Fixtures\WrongTypeNotification;
 use Aporat\PushNotifications\Outcome;
 use Aporat\PushNotifications\Response;
 use Illuminate\Notifications\Events\NotificationFailed;
@@ -160,5 +164,58 @@ final class PushChannelTest extends TestCase
         $responses = $this->app->make(PushChannel::class)->send(new Device([new PushTarget('ios', 'a1')]), new WelcomeNotification);
 
         self::assertTrue($responses[0]->tokenIsUnregistered());
+    }
+
+    public function test_platform_builders_send_platform_messages(): void
+    {
+        $fake = Push::fake();
+
+        (new Device([new PushTarget('ios', 'a1'), new PushTarget('android', 'tok')]))->notify(new ScoreUpdateNotification);
+
+        $fake->assertSentCount(2);
+        $apns = $fake->sent('ios')[0];
+        self::assertInstanceOf(ApnsMessage::class, $apns);
+        self::assertSame('liveactivity', $apns->headers()['apns-push-type']);
+        self::assertSame('com.acme.app.push-type.liveactivity', $apns->headers()['apns-topic']);
+        self::assertStringContainsString('"content-state":{"score":3}', $apns->body());
+
+        $fcm = $fake->sent('android')[0];
+        self::assertInstanceOf(FcmMessage::class, $fcm);
+        self::assertSame(['score' => '3'], $fcm->getData());
+        self::assertFalse($fcm->hasNotification());
+    }
+
+    public function test_platform_builder_wins_and_to_push_serves_the_rest(): void
+    {
+        $fake = Push::fake();
+
+        (new Device([new PushTarget('ios', 'a1'), new PushTarget('android', 'tok')]))->notify(new ApnsOnlyNotification);
+
+        $apns = $fake->sent('ios')[0];
+        self::assertInstanceOf(ApnsMessage::class, $apns);
+        self::assertSame('background', $apns->headers()['apns-push-type']);
+
+        $fcm = $fake->sent('android')[0];
+        self::assertInstanceOf(FcmMessage::class, $fcm);
+        self::assertTrue($fcm->hasNotification());
+    }
+
+    public function test_to_push_is_not_required_when_every_target_has_a_builder(): void
+    {
+        $fake = Push::fake();
+
+        (new Device(new PushTarget('ios', 'a1')))->notify(new ScoreUpdateNotification);
+
+        $fake->assertSentCount(1);
+    }
+
+    public function test_platform_builder_must_return_its_platforms_message(): void
+    {
+        Push::fake();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('toApns() must return a Aporat\\PushNotifications\\Apns\\Message');
+
+        (new Device(new PushTarget('ios', 'a1')))->notify(new WrongTypeNotification);
     }
 }

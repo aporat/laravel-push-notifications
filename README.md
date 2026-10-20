@@ -197,6 +197,27 @@ class User extends Authenticatable
 
 `routeNotificationForPush()` may return one `PushTarget`, one `['app' => ..., 'token' => ...]` array, or a list of either. Targets are grouped by app and sent concurrently through each app's connection, so one user with an iPhone and an Android phone gets both. Every app is resolved before anything is sent; an unknown app name fails the whole send.
 
+### One platform, full control
+
+For a push that isn't an alert, or that needs a platform's whole API, give the notification `toApns($notifiable, $token)` returning an `Apns\Message`, or `toFcm($notifiable, $token)` returning an `Fcm\Message`, or both. The platform method is used for targets of its platform; `toPush()` serves the rest, and is only required when some target needs it.
+
+```php
+public function toApns($notifiable, string $token): Apns\Message
+{
+    return Apns\Message::liveActivity($token, Apns\Payload::create()
+        ->event('update')
+        ->timestamp(time())
+        ->contentState(['score' => $this->score]));
+}
+
+public function toFcm($notifiable, string $token): Fcm\Message
+{
+    return Fcm\Message::to($token)->data(['score' => $this->score]);
+}
+```
+
+An APNs message without a topic gets the app's bundle ID, with the push type's suffix.
+
 ### Failures and retries
 
 Each target the service refuses raises Laravel's own `Illuminate\Notifications\Events\NotificationFailed`, with `app`, `target` and the `Response` in its data, besides this package's events. When no target was reached and at least one failure is retryable (rate limited, service unavailable, connection failed), the channel throws `DeliveryFailedException`, so a queued notification's `$tries` and `backoff` take over. A partial success never throws: a retry would notify again the devices that already got it. Those responses are still on the events, and on the channel's return value.
